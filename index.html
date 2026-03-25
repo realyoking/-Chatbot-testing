@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Local Browser AI</title>
+    <style>
+        body { font-family: sans-serif; background: #121212; color: white; display: flex; justify-content: center; padding: 20px; }
+        .container { width: 100%; max-width: 600px; background: #1e1e1e; padding: 20px; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.5); }
+        
+        /* Onboarding Styles */
+        .card { background: #2a2a2a; padding: 15px; margin: 10px 0; border-radius: 8px; cursor: pointer; border: 2px solid transparent; transition: 0.3s; }
+        .card:hover { border-color: #3b82f6; background: #333; }
+        
+        /* Progress Styles */
+        #loader { display: none; margin: 20px 0; }
+        .bar-bg { width: 100%; height: 10px; background: #333; border-radius: 5px; overflow: hidden; }
+        #bar-fill { width: 0%; height: 100%; background: #3b82f6; transition: width 0.1s; }
+        
+        /* Chat Styles */
+        #chat-area { display: none; }
+        #output { background: #000; padding: 15px; height: 200px; overflow-y: auto; border-radius: 5px; margin-bottom: 10px; white-space: pre-wrap; }
+        input { width: 80%; padding: 10px; border-radius: 5px; border: none; }
+        button#send { width: 15%; padding: 10px; cursor: pointer; background: #3b82f6; color: white; border: none; border-radius: 5px; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div id="onboarding">
+        <h2>Select Your AI Brain</h2>
+        <p>The model will download once and be saved in your browser cache.</p>
+        <div class="card" onclick="loadModel('google/gemma-3-270m-it')">
+            <strong>Gemma 3 270M (Fast)</strong><br><small>~125MB - Best for simple questions.</small>
+        </div>
+        <div class="card" onclick="loadModel('google/gemma-3-1b-it')">
+            <strong>Gemma 3 1B (Balanced)</strong><br><small>~650MB - Smarter, feels like a real assistant.</small>
+        </div>
+    </div>
+
+    <div id="loader">
+        <p id="status-text">Initializing WebGPU...</p>
+        <div class="bar-bg"><div id="bar-fill"></div></div>
+    </div>
+
+    <div id="chat-area">
+        <div id="output">System: Waiting for input...</div>
+        <div style="display:flex; justify-content: space-between;">
+            <input type="text" id="user-input" placeholder="Type a message...">
+            <button id="send">Send</button>
+        </div>
+    </div>
+</div>
+
+<script type="module">
+    // Using Transformers.js v3 for WebGPU support
+    import { pipeline } from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.0.0';
+
+    let generator;
+
+    window.loadModel = async (modelID) => {
+        document.getElementById('onboarding').style.display = 'none';
+        document.getElementById('loader').style.display = 'block';
+
+        try {
+            generator = await pipeline('text-generation', modelID, {
+                device: 'webgpu', // Uses your GPU
+                dtype: 'q4',      // Uses the tiny 4-bit version
+                progress_callback: (p) => {
+                    if (p.status === 'progress') {
+                        document.getElementById('status-text').innerText = `Downloading Model: ${Math.round(p.progress)}%`;
+                        document.getElementById('bar-fill').style.width = `${p.progress}%`;
+                    } else if (p.status === 'ready') {
+                        document.getElementById('status-text').innerText = "Model Loaded! Finalizing...";
+                    }
+                }
+            });
+
+            document.getElementById('loader').style.display = 'none';
+            document.getElementById('chat-area').style.display = 'block';
+        } catch (err) {
+            alert("Error: WebGPU might not be enabled or your browser is unsupported.");
+            console.error(err);
+        }
+    };
+
+    async function handleChat() {
+        const input = document.getElementById('user-input');
+        const output = document.getElementById('output');
+        const text = input.value;
+        if (!text) return;
+
+        output.innerText += `\n\nYou: ${text}\nAI: Thinking...`;
+        input.value = '';
+
+        const response = await generator(text, { 
+            max_new_tokens: 100,
+            temperature: 0.7 
+        });
+
+        const reply = response[0].generated_text.replace(text, '').trim();
+        output.innerText = output.innerText.replace('Thinking...', reply);
+    }
+
+    document.getElementById('send').onclick = handleChat;
+    document.getElementById('user-input').onkeypress = (e) => { if(e.key === 'Enter') handleChat(); };
+</script>
+
+</body>
+</html>
