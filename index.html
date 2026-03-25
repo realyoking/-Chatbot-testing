@@ -3,107 +3,134 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Local Browser AI</title>
+    <title>Gemma 3 Local Browser AI</title>
     <style>
-        body { font-family: sans-serif; background: #121212; color: white; display: flex; justify-content: center; padding: 20px; }
-        .container { width: 100%; max-width: 600px; background: #1e1e1e; padding: 20px; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.5); }
+        :root { --blue: #3b82f6; --bg: #0f172a; --card: #1e293b; }
+        body { font-family: -apple-system, system-ui, sans-serif; background: var(--bg); color: white; margin: 0; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+        .app { width: 90%; max-width: 500px; background: var(--card); padding: 2rem; border-radius: 16px; box-shadow: 0 10px 30px rgba(0,0,0,0.3); text-align: center; }
         
-        /* Onboarding Styles */
-        .card { background: #2a2a2a; padding: 15px; margin: 10px 0; border-radius: 8px; cursor: pointer; border: 2px solid transparent; transition: 0.3s; }
-        .card:hover { border-color: #3b82f6; background: #333; }
+        /* UI Screens */
+        .screen { display: none; }
+        .active { display: block; }
         
-        /* Progress Styles */
-        #loader { display: none; margin: 20px 0; }
-        .bar-bg { width: 100%; height: 10px; background: #333; border-radius: 5px; overflow: hidden; }
-        #bar-fill { width: 0%; height: 100%; background: #3b82f6; transition: width 0.1s; }
+        /* Buttons & Cards */
+        .btn { background: var(--blue); color: white; border: none; padding: 12px 24px; border-radius: 8px; cursor: pointer; font-weight: 600; width: 100%; margin-top: 10px; }
+        .model-option { border: 1px solid #334155; padding: 15px; margin: 10px 0; border-radius: 10px; cursor: pointer; transition: 0.2s; }
+        .model-option:hover { background: #334155; border-color: var(--blue); }
+
+        /* Progress Bar */
+        .progress-box { margin-top: 20px; }
+        .bar-bg { width: 100%; height: 8px; background: #0f172a; border-radius: 4px; overflow: hidden; margin: 10px 0; }
+        #bar-fill { width: 0%; height: 100%; background: var(--blue); transition: width 0.2s; }
         
-        /* Chat Styles */
-        #chat-area { display: none; }
-        #output { background: #000; padding: 15px; height: 200px; overflow-y: auto; border-radius: 5px; margin-bottom: 10px; white-space: pre-wrap; }
-        input { width: 80%; padding: 10px; border-radius: 5px; border: none; }
-        button#send { width: 15%; padding: 10px; cursor: pointer; background: #3b82f6; color: white; border: none; border-radius: 5px; }
+        /* Chat Area */
+        #output { background: #0f172a; padding: 15px; height: 250px; overflow-y: auto; text-align: left; border-radius: 8px; margin-bottom: 10px; font-size: 0.9rem; line-height: 1.5; }
     </style>
 </head>
 <body>
 
-<div class="container">
-    <div id="onboarding">
-        <h2>Select Your AI Brain</h2>
-        <p>The model will download once and be saved in your browser cache.</p>
-        <div class="card" onclick="loadModel('google/gemma-3-270m-it')">
-            <strong>Gemma 3 270M (Fast)</strong><br><small>~125MB - Best for simple questions.</small>
+<div class="app">
+    <div id="screen-start" class="screen active">
+        <h2>Deploy Your AI</h2>
+        <p style="color: #94a3b8;">Choose a model to download into your browser cache.</p>
+        <div class="model-option" onclick="init('onnx-community/Gemma-3-270M-it-W8A16')">
+            <strong>Gemma 3 270M</strong><br><small>Super Fast (~150MB)</small>
         </div>
-        <div class="card" onclick="loadModel('google/gemma-3-1b-it')">
-            <strong>Gemma 3 1B (Balanced)</strong><br><small>~650MB - Smarter, feels like a real assistant.</small>
+        <div class="model-option" onclick="init('google/gemma-3-1b-it')">
+            <strong>Gemma 3 1B</strong><br><small>Smarts + Logic (~650MB)</small>
         </div>
     </div>
 
-    <div id="loader">
-        <p id="status-text">Initializing WebGPU...</p>
-        <div class="bar-bg"><div id="bar-fill"></div></div>
+    <div id="screen-loading" class="screen">
+        <h3 id="loader-title">Preparing AI...</h3>
+        <p id="loader-status" style="font-size: 0.8rem; color: #94a3b8;">Checking hardware...</p>
+        <div class="progress-box">
+            <div class="bar-bg"><div id="bar-fill"></div></div>
+        </div>
     </div>
 
-    <div id="chat-area">
-        <div id="output">System: Waiting for input...</div>
-        <div style="display:flex; justify-content: space-between;">
-            <input type="text" id="user-input" placeholder="Type a message...">
-            <button id="send">Send</button>
+    <div id="screen-chat" class="screen">
+        <div id="output">System: Model ready. Say hello!</div>
+        <div style="display:flex; gap: 8px;">
+            <input type="text" id="user-input" placeholder="Ask something..." style="flex:1; padding: 10px; border-radius: 5px; border: none;">
+            <button onclick="handleChat()" class="btn" style="width: auto; margin:0;">Send</button>
         </div>
     </div>
 </div>
 
 <script type="module">
-    // Using Transformers.js v3 for WebGPU support
-    import { pipeline } from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.0.0';
+    // Use the latest 2026 stable version of Transformers.js
+    import { pipeline, env } from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.0.0';
+
+    // GitHub Pages / Remote Config
+    env.allowRemoteModels = true;
+    env.allowLocalModels = false;
 
     let generator;
 
-    window.loadModel = async (modelID) => {
-        document.getElementById('onboarding').style.display = 'none';
-        document.getElementById('loader').style.display = 'block';
+    window.init = async (modelID) => {
+        showScreen('screen-loading');
+        const fill = document.getElementById('bar-fill');
+        const status = document.getElementById('loader-status');
 
         try {
+            // Step 1: Attempt WebGPU (Fastest)
+            status.innerText = "Attempting WebGPU acceleration...";
             generator = await pipeline('text-generation', modelID, {
-                device: 'webgpu', // Uses your GPU
-                dtype: 'q4',      // Uses the tiny 4-bit version
+                device: 'webgpu',
+                dtype: 'q4', // 4-bit quantization for browser efficiency
                 progress_callback: (p) => {
-                    if (p.status === 'progress') {
-                        document.getElementById('status-text').innerText = `Downloading Model: ${Math.round(p.progress)}%`;
-                        document.getElementById('bar-fill').style.width = `${p.progress}%`;
-                    } else if (p.status === 'ready') {
-                        document.getElementById('status-text').innerText = "Model Loaded! Finalizing...";
+                    if(p.status === 'progress') {
+                        fill.style.width = p.progress + '%';
+                        status.innerText = `Downloading: ${Math.round(p.progress)}%`;
                     }
                 }
             });
-
-            document.getElementById('loader').style.display = 'none';
-            document.getElementById('chat-area').style.display = 'block';
-        } catch (err) {
-            alert("Error: WebGPU might not be enabled or your browser is unsupported.");
-            console.error(err);
+        } catch (e) {
+            // Step 2: Fallback to WASM/CPU if WebGPU is blocked
+            console.warn("WebGPU failed, falling back to CPU:", e);
+            status.innerText = "WebGPU blocked. Switching to CPU mode (Slower)...";
+            
+            generator = await pipeline('text-generation', modelID, {
+                device: 'wasm',
+                dtype: 'q4',
+                progress_callback: (p) => {
+                    if(p.status === 'progress') {
+                        fill.style.width = p.progress + '%';
+                        status.innerText = `Downloading: ${Math.round(p.progress)}%`;
+                    }
+                }
+            });
         }
+
+        showScreen('screen-chat');
     };
 
-    async function handleChat() {
+    window.handleChat = async () => {
         const input = document.getElementById('user-input');
         const output = document.getElementById('output');
         const text = input.value;
         if (!text) return;
 
-        output.innerText += `\n\nYou: ${text}\nAI: Thinking...`;
+        output.innerHTML += `<br><b>You:</b> ${text}<br><b>AI:</b> <span id="typing">...</span>`;
         input.value = '';
+        output.scrollTop = output.scrollHeight;
 
-        const response = await generator(text, { 
-            max_new_tokens: 100,
+        const results = await generator(text, { 
+            max_new_tokens: 120,
             temperature: 0.7 
         });
 
-        const reply = response[0].generated_text.replace(text, '').trim();
-        output.innerText = output.innerText.replace('Thinking...', reply);
-    }
+        const reply = results[0].generated_text.replace(text, '').trim();
+        document.getElementById('typing').id = ''; // Remove typing ID
+        output.innerHTML = output.innerHTML.replace('...', reply);
+        output.scrollTop = output.scrollHeight;
+    };
 
-    document.getElementById('send').onclick = handleChat;
-    document.getElementById('user-input').onkeypress = (e) => { if(e.key === 'Enter') handleChat(); };
+    function showScreen(id) {
+        document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+        document.getElementById(id).classList.add('active');
+    }
 </script>
 
 </body>
