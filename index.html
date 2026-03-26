@@ -3,67 +3,69 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>iPad AI - Force Listen</title>
+    <title>iPad AI - Permission Fix</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         body { background: #0a0a0b; color: #00ff41; font-family: monospace; touch-action: manipulation; }
-        .btn-ready { border: 3px solid #00ff41; color: #00ff41; }
-        .btn-active { border: 3px solid #ff4141; color: #ff4141; background: rgba(255,65,65,0.1); }
-        #preview { min-height: 80px; border-radius: 15px; background: #1a1a1c; border: 1px solid #333; }
-        .pulse { animation: p 1.5s infinite; }
-        @keyframes p { 0% { opacity: 1; } 50% { opacity: 0.3; } 100% { opacity: 1; } }
+        #mainBtn { border: 3px solid #00ff41; transition: all 0.2s; -webkit-tap-highlight-color: transparent; }
+        .recording { background: #ff1111 !important; border-color: #ff1111 !important; color: white !important; }
+        #indicator { width: 12px; height: 12px; background: #333; border-radius: 50%; display: inline-block; margin-right: 8px; }
+        .mic-on { background: #ff1111 !important; box-shadow: 0 0 10px #ff1111; }
     </style>
 </head>
 <body class="flex flex-col items-center justify-center min-h-screen p-6">
 
-    <div id="loader" class="w-full max-w-sm text-center">
-        <div class="mb-4 text-xs tracking-widest uppercase">Initializing Local Engine...</div>
-        <div class="h-1 bg-gray-800 rounded-full overflow-hidden">
-            <div id="bar" class="h-full bg-green-500 w-0 transition-all"></div>
-        </div>
-    </div>
-
-    <div id="app" class="hidden w-full max-w-sm">
-        <div id="preview" class="p-6 mb-8 text-white text-lg italic flex items-center justify-center text-center">
-            Tap button to speak...
+    <div id="app" class="w-full max-w-sm text-center">
+        <div class="mb-8">
+            <div id="indicator"></div>
+            <span id="statusText" class="text-[10px] uppercase tracking-widest text-gray-500">System Ready</span>
         </div>
 
-        <button id="mainBtn" onclick="handleTap()" class="w-full py-10 rounded-[40px] font-bold text-2xl btn-ready transition-all active:scale-95">
-            START TALKING
+        <div id="preview" class="p-8 mb-10 bg-gray-900 rounded-3xl text-white italic min-h-[100px] flex items-center justify-center">
+            Tap the button to grant permission and start.
+        </div>
+
+        <button id="mainBtn" onclick="handleInteraction()" class="w-full py-12 rounded-[50px] font-bold text-2xl text-green-400 bg-transparent">
+            ENABLE MIC
         </button>
-
-        <div class="mt-10 flex justify-between text-[10px] uppercase text-gray-500 tracking-tighter">
-            <div>Mic: <span id="micStatus" class="text-gray-700">OFF</span></div>
-            <div>AI: <span id="aiStatus">STANDBY</span></div>
-        </div>
     </div>
 
     <script type="module">
         import { pipeline } from 'https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2';
 
-        const bar = document.getElementById('bar');
         const preview = document.getElementById('preview');
         const mainBtn = document.getElementById('mainBtn');
-        const micStatus = document.getElementById('micStatus');
-        
+        const indicator = document.getElementById('indicator');
+        const statusText = document.getElementById('statusText');
+
         let generator;
         let recognition;
-        let isActive = false;
-        let textResult = "";
+        let isRecording = false;
+        let hasPermission = false;
 
-        // 1. Setup AI
-        async function setup() {
+        // 1. Force the Microphone Permission
+        async function requestMicAccess() {
             try {
-                generator = await pipeline('text2text-generation', 'Xenova/LaMini-Flan-T5-77M', {
-                    progress_callback: (p) => { if(p.status==='progress') bar.style.width = p.progress + "%"; }
-                });
-                document.getElementById('loader').classList.add('hidden');
-                document.getElementById('app').classList.remove('hidden');
-                setupSpeech();
-            } catch (e) { alert("Load Error: " + e.message); }
+                // This is the "magic" line that triggers the iPad popup
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                // Stop the stream immediately, we just needed the permission
+                stream.getTracks().forEach(track => track.stop());
+                hasPermission = true;
+                return true;
+            } catch (e) {
+                preview.innerText = "Permission Denied. Please enable the mic in iPad Settings > Safari.";
+                return false;
+            }
         }
 
-        // 2. Setup Speech (iPad optimized)
+        // 2. Load the AI
+        (async () => {
+            statusText.innerText = "Loading AI...";
+            generator = await pipeline('text2text-generation', 'Xenova/LaMini-Flan-T5-77M');
+            statusText.innerText = "AI Ready";
+            setupSpeech();
+        })();
+
         function setupSpeech() {
             const Speech = window.SpeechRecognition || window.webkitSpeechRecognition;
             recognition = new Speech();
@@ -72,67 +74,54 @@
             recognition.interimResults = true;
 
             recognition.onresult = (event) => {
-                let interim = "";
+                let text = "";
                 for (let i = event.resultIndex; i < event.results.length; ++i) {
-                    if (event.results[i].isFinal) textResult += event.results[i][0].transcript;
-                    else interim += event.results[i][0].transcript;
+                    text += event.results[i][0].transcript;
                 }
-                preview.innerText = interim || textResult;
-                micStatus.innerText = "HEARING SOUND";
-                micStatus.className = "text-green-500 font-bold";
-            };
-
-            recognition.onerror = (e) => {
-                if(e.error === 'no-speech') return;
-                micStatus.innerText = "ERR: " + e.error;
-                micStatus.className = "text-red-500";
+                preview.innerText = text;
             };
         }
 
-        // 3. Handle Taps
-        window.handleTap = async () => {
-            if (!isActive) {
-                // START
-                isActive = true;
-                textResult = "";
-                preview.innerText = "Speak now...";
-                preview.classList.add('pulse');
-                mainBtn.innerText = "STOP & SEND";
-                mainBtn.className = "w-full py-10 rounded-[40px] font-bold text-2xl btn-active";
+        window.handleInteraction = async () => {
+            // First time click: Request Permission
+            if (!hasPermission) {
+                const granted = await requestMicAccess();
+                if (granted) {
+                    mainBtn.innerText = "START TALKING";
+                    preview.innerText = "Permission Granted! Tap again to speak.";
+                }
+                return;
+            }
+
+            // Normal Toggle Logic
+            if (!isRecording) {
+                isRecording = true;
+                preview.innerText = "Listening...";
+                mainBtn.innerText = "TAP TO FINISH";
+                mainBtn.classList.add('recording');
+                indicator.classList.add('mic-on');
+                
                 window.speechSynthesis.cancel();
                 recognition.start();
             } else {
-                // STOP
-                isActive = false;
+                isRecording = false;
                 recognition.stop();
-                preview.classList.remove('pulse');
                 mainBtn.innerText = "THINKING...";
-                mainBtn.disabled = true;
+                mainBtn.classList.remove('recording');
+                indicator.classList.remove('mic-on');
 
-                // Wait a tiny bit for the final transcript to catch up
                 setTimeout(async () => {
-                    const finalInput = preview.innerText.trim();
-                    if (finalInput.length > 1 && finalInput !== "Speak now...") {
-                        const output = await generator(finalInput, { max_new_tokens: 50 });
+                    const input = preview.innerText;
+                    if (input && input !== "Listening...") {
+                        const output = await generator(input, { max_new_tokens: 50 });
                         const aiMsg = output[0].generated_text;
                         preview.innerText = aiMsg;
-                        
-                        const utter = new SpeechSynthesisUtterance(aiMsg);
-                        window.speechSynthesis.speak(utter);
-                    } else {
-                        preview.innerText = "iPad didn't pick up audio. Check Mic permissions!";
+                        window.speechSynthesis.speak(new SpeechSynthesisUtterance(aiMsg));
                     }
-                    
-                    mainBtn.disabled = false;
                     mainBtn.innerText = "START TALKING";
-                    mainBtn.className = "w-full py-10 rounded-[40px] font-bold text-2xl btn-ready";
-                    micStatus.innerText = "OFF";
-                    micStatus.className = "text-gray-700";
                 }, 500);
             }
         };
-
-        setup();
     </script>
 </body>
 </html>
