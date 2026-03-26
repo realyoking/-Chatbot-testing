@@ -2,98 +2,137 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gemma 3 Web AI</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>iPad AI - Force Listen</title>
+    <script src="https://cdn.tailwindcss.com"></script>
     <style>
-        body { font-family: sans-serif; background: #0f172a; color: white; display: flex; justify-content: center; padding: 20px; }
-        .card { background: #1e293b; padding: 20px; border-radius: 15px; width: 100%; max-width: 500px; box-shadow: 0 10px 25px rgba(0,0,0,0.3); }
-        .model-btn { background: #334155; border: 1px solid #475569; color: white; padding: 15px; width: 100%; margin: 10px 0; border-radius: 10px; cursor: pointer; text-align: left; }
-        .model-btn:hover { background: #3b82f6; }
-        #loader { display: none; text-align: center; margin: 20px 0; }
-        .progress-bg { background: #0f172a; border-radius: 5px; height: 10px; width: 100%; overflow: hidden; margin-top: 10px; }
-        #progress-fill { background: #3b82f6; height: 100%; width: 0%; transition: width 0.2s; }
-        #chat { display: none; }
-        #output { background: #000; height: 200px; overflow-y: auto; padding: 10px; border-radius: 5px; margin-bottom: 10px; font-family: monospace; }
-        input { width: 75%; padding: 10px; border-radius: 5px; border: none; }
-        button#send-btn { width: 20%; padding: 10px; background: #3b82f6; border: none; color: white; border-radius: 5px; cursor: pointer; }
+        body { background: #0a0a0b; color: #00ff41; font-family: monospace; touch-action: manipulation; }
+        .btn-ready { border: 3px solid #00ff41; color: #00ff41; }
+        .btn-active { border: 3px solid #ff4141; color: #ff4141; background: rgba(255,65,65,0.1); }
+        #preview { min-height: 80px; border-radius: 15px; background: #1a1a1c; border: 1px solid #333; }
+        .pulse { animation: p 1.5s infinite; }
+        @keyframes p { 0% { opacity: 1; } 50% { opacity: 0.3; } 100% { opacity: 1; } }
     </style>
 </head>
-<body>
+<body class="flex flex-col items-center justify-center min-h-screen p-6">
 
-<div class="card">
-    <div id="setup">
-        <h2>Select AI Model</h2>
-        <button class="model-btn" onclick="start('onnx-community/gemma-3-270m-it-W8A16')">
-            <b>Gemma 3 270M</b><br><small>Fastest load (~150MB)</small>
+    <div id="loader" class="w-full max-w-sm text-center">
+        <div class="mb-4 text-xs tracking-widest uppercase">Initializing Local Engine...</div>
+        <div class="h-1 bg-gray-800 rounded-full overflow-hidden">
+            <div id="bar" class="h-full bg-green-500 w-0 transition-all"></div>
+        </div>
+    </div>
+
+    <div id="app" class="hidden w-full max-w-sm">
+        <div id="preview" class="p-6 mb-8 text-white text-lg italic flex items-center justify-center text-center">
+            Tap button to speak...
+        </div>
+
+        <button id="mainBtn" onclick="handleTap()" class="w-full py-10 rounded-[40px] font-bold text-2xl btn-ready transition-all active:scale-95">
+            START TALKING
         </button>
-        <button class="model-btn" onclick="start('onnx-community/gemma-3-1b-it-ONNX-GQA')">
-            <b>Gemma 3 1B</b><br><small>Smartest choice (~650MB)</small>
-        </button>
+
+        <div class="mt-10 flex justify-between text-[10px] uppercase text-gray-500 tracking-tighter">
+            <div>Mic: <span id="micStatus" class="text-gray-700">OFF</span></div>
+            <div>AI: <span id="aiStatus">STANDBY</span></div>
+        </div>
     </div>
 
-    <div id="loader">
-        <h3 id="status-msg">Downloading Brain...</h3>
-        <div class="progress-bg"><div id="progress-fill"></div></div>
-        <p id="percent">0%</p>
-    </div>
+    <script type="module">
+        import { pipeline } from 'https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2';
 
-    <div id="chat">
-        <div id="output">System: Ready.</div>
-        <input type="text" id="user-input" placeholder="Type here...">
-        <button id="send-btn" onclick="send()">Send</button>
-    </div>
-</div>
+        const bar = document.getElementById('bar');
+        const preview = document.getElementById('preview');
+        const mainBtn = document.getElementById('mainBtn');
+        const micStatus = document.getElementById('micStatus');
+        
+        let generator;
+        let recognition;
+        let isActive = false;
+        let textResult = "";
 
-<script type="module">
-    // Direct link to the 2026 stable library
-    import { pipeline, env } from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.0.0';
-
-    // IMPORTANT: Fixes for GitHub Pages environment
-    env.allowRemoteModels = true;
-    env.proxies.HUGGINGFACE_CO_RESOLVE_ENDPOINT = 'https://huggingface.co';
-
-    let pipe;
-
-    window.start = async (modelId) => {
-        document.getElementById('setup').style.display = 'none';
-        document.getElementById('loader').style.display = 'block';
-
-        try {
-            pipe = await pipeline('text-generation', modelId, {
-                device: 'webgpu', // Uses GPU
-                dtype: 'q4',      // Uses the tiny 4-bit version
-                progress_callback: (p) => {
-                    if (p.status === 'progress') {
-                        document.getElementById('progress-fill').style.width = p.progress + '%';
-                        document.getElementById('percent').innerText = Math.round(p.progress) + '%';
-                    }
-                }
-            });
-            
-            document.getElementById('loader').style.display = 'none';
-            document.getElementById('chat').style.display = 'block';
-        } catch (e) {
-            console.error(e);
-            document.getElementById('status-msg').innerText = "WebGPU Error. Refreshing with CPU...";
-            // Auto-retry with CPU if GPU fails
-            location.reload(); 
+        // 1. Setup AI
+        async function setup() {
+            try {
+                generator = await pipeline('text2text-generation', 'Xenova/LaMini-Flan-T5-77M', {
+                    progress_callback: (p) => { if(p.status==='progress') bar.style.width = p.progress + "%"; }
+                });
+                document.getElementById('loader').classList.add('hidden');
+                document.getElementById('app').classList.remove('hidden');
+                setupSpeech();
+            } catch (e) { alert("Load Error: " + e.message); }
         }
-    };
 
-    window.send = async () => {
-        const input = document.getElementById('user-input');
-        const output = document.getElementById('output');
-        const text = input.value;
-        if(!text) return;
+        // 2. Setup Speech (iPad optimized)
+        function setupSpeech() {
+            const Speech = window.SpeechRecognition || window.webkitSpeechRecognition;
+            recognition = new Speech();
+            recognition.lang = 'en-US';
+            recognition.continuous = true;
+            recognition.interimResults = true;
 
-        output.innerHTML += `<br><b>You:</b> ${text}<br><b>AI:</b> Thinking...`;
-        input.value = '';
+            recognition.onresult = (event) => {
+                let interim = "";
+                for (let i = event.resultIndex; i < event.results.length; ++i) {
+                    if (event.results[i].isFinal) textResult += event.results[i][0].transcript;
+                    else interim += event.results[i][0].transcript;
+                }
+                preview.innerText = interim || textResult;
+                micStatus.innerText = "HEARING SOUND";
+                micStatus.className = "text-green-500 font-bold";
+            };
 
-        const result = await pipe(text, { max_new_tokens: 50 });
-        const reply = result[0].generated_text.replace(text, '');
-        output.innerHTML = output.innerHTML.replace('Thinking...', reply);
-    };
-</script>
+            recognition.onerror = (e) => {
+                if(e.error === 'no-speech') return;
+                micStatus.innerText = "ERR: " + e.error;
+                micStatus.className = "text-red-500";
+            };
+        }
 
+        // 3. Handle Taps
+        window.handleTap = async () => {
+            if (!isActive) {
+                // START
+                isActive = true;
+                textResult = "";
+                preview.innerText = "Speak now...";
+                preview.classList.add('pulse');
+                mainBtn.innerText = "STOP & SEND";
+                mainBtn.className = "w-full py-10 rounded-[40px] font-bold text-2xl btn-active";
+                window.speechSynthesis.cancel();
+                recognition.start();
+            } else {
+                // STOP
+                isActive = false;
+                recognition.stop();
+                preview.classList.remove('pulse');
+                mainBtn.innerText = "THINKING...";
+                mainBtn.disabled = true;
+
+                // Wait a tiny bit for the final transcript to catch up
+                setTimeout(async () => {
+                    const finalInput = preview.innerText.trim();
+                    if (finalInput.length > 1 && finalInput !== "Speak now...") {
+                        const output = await generator(finalInput, { max_new_tokens: 50 });
+                        const aiMsg = output[0].generated_text;
+                        preview.innerText = aiMsg;
+                        
+                        const utter = new SpeechSynthesisUtterance(aiMsg);
+                        window.speechSynthesis.speak(utter);
+                    } else {
+                        preview.innerText = "iPad didn't pick up audio. Check Mic permissions!";
+                    }
+                    
+                    mainBtn.disabled = false;
+                    mainBtn.innerText = "START TALKING";
+                    mainBtn.className = "w-full py-10 rounded-[40px] font-bold text-2xl btn-ready";
+                    micStatus.innerText = "OFF";
+                    micStatus.className = "text-gray-700";
+                }, 500);
+            }
+        };
+
+        setup();
+    </script>
 </body>
 </html>
