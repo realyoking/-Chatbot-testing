@@ -3,29 +3,36 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>iPad AI - Permission Fix</title>
+    <title>iPad AI - Live View</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
-        body { background: #0a0a0b; color: #00ff41; font-family: monospace; touch-action: manipulation; }
-        #mainBtn { border: 3px solid #00ff41; transition: all 0.2s; -webkit-tap-highlight-color: transparent; }
+        body { background: #08080a; color: #00ff41; font-family: monospace; touch-action: manipulation; }
+        #mainBtn { border: 3px solid #00ff41; -webkit-tap-highlight-color: transparent; transition: 0.2s; }
         .recording { background: #ff1111 !important; border-color: #ff1111 !important; color: white !important; }
-        #indicator { width: 12px; height: 12px; background: #333; border-radius: 50%; display: inline-block; margin-right: 8px; }
-        .mic-on { background: #ff1111 !important; box-shadow: 0 0 10px #ff1111; }
+        
+        /* Text Styles */
+        #final-text { color: white; }
+        #interim-text { color: #666; font-style: italic; }
+        
+        /* Visualizer Dot */
+        #dot { width: 10px; height: 10px; background: #222; border-radius: 50%; display: inline-block; margin-right: 10px; }
+        .dot-active { background: #ff1111 !important; box-shadow: 0 0 10px #ff1111; }
     </style>
 </head>
 <body class="flex flex-col items-center justify-center min-h-screen p-6">
 
-    <div id="app" class="w-full max-w-sm text-center">
-        <div class="mb-8">
-            <div id="indicator"></div>
-            <span id="statusText" class="text-[10px] uppercase tracking-widest text-gray-500">System Ready</span>
+    <div class="w-full max-w-sm text-center">
+        <div class="mb-6">
+            <div id="dot"></div>
+            <span id="status" class="text-[10px] uppercase tracking-widest text-gray-600">Standby</span>
         </div>
 
-        <div id="preview" class="p-8 mb-10 bg-gray-900 rounded-3xl text-white italic min-h-[100px] flex items-center justify-center">
-            Tap the button to grant permission and start.
+        <div class="p-8 mb-10 bg-gray-900 rounded-3xl min-h-[150px] text-left leading-relaxed text-lg overflow-y-auto border border-gray-800">
+            <span id="final-text"></span>
+            <span id="interim-text">Tap button to start...</span>
         </div>
 
-        <button id="mainBtn" onclick="handleInteraction()" class="w-full py-12 rounded-[50px] font-bold text-2xl text-green-400 bg-transparent">
+        <button id="mainBtn" onclick="handleAction()" class="w-full py-12 rounded-[50px] font-bold text-2xl bg-transparent">
             ENABLE MIC
         </button>
     </div>
@@ -33,36 +40,35 @@
     <script type="module">
         import { pipeline } from 'https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2';
 
-        const preview = document.getElementById('preview');
+        const finalTextEl = document.getElementById('final-text');
+        const interimTextEl = document.getElementById('interim-text');
         const mainBtn = document.getElementById('mainBtn');
-        const indicator = document.getElementById('indicator');
-        const statusText = document.getElementById('statusText');
+        const dot = document.getElementById('dot');
+        const status = document.getElementById('status');
 
         let generator;
         let recognition;
         let isRecording = false;
         let hasPermission = false;
 
-        // 1. Force the Microphone Permission
-        async function requestMicAccess() {
+        // 1. Force Permission
+        async function getPermission() {
             try {
-                // This is the "magic" line that triggers the iPad popup
                 const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                // Stop the stream immediately, we just needed the permission
-                stream.getTracks().forEach(track => track.stop());
+                stream.getTracks().forEach(t => t.stop());
                 hasPermission = true;
                 return true;
             } catch (e) {
-                preview.innerText = "Permission Denied. Please enable the mic in iPad Settings > Safari.";
+                interimTextEl.innerText = "Mic blocked. Check iPad Settings.";
                 return false;
             }
         }
 
-        // 2. Load the AI
+        // 2. Load AI
         (async () => {
-            statusText.innerText = "Loading AI...";
+            status.innerText = "Loading AI...";
             generator = await pipeline('text2text-generation', 'Xenova/LaMini-Flan-T5-77M');
-            statusText.innerText = "AI Ready";
+            status.innerText = "System Ready";
             setupSpeech();
         })();
 
@@ -71,55 +77,68 @@
             recognition = new Speech();
             recognition.lang = 'en-US';
             recognition.continuous = true;
-            recognition.interimResults = true;
+            recognition.interimResults = true; // THE MAGIC KEY
 
             recognition.onresult = (event) => {
-                let text = "";
+                let interimTranscript = "";
+                let finalTranscript = "";
+
                 for (let i = event.resultIndex; i < event.results.length; ++i) {
-                    text += event.results[i][0].transcript;
+                    if (event.results[i].isFinal) {
+                        finalTranscript += event.results[i][0].transcript;
+                    } else {
+                        interimTranscript += event.results[i][0].transcript;
+                    }
                 }
-                preview.innerText = text;
+
+                if(finalTranscript) finalTextEl.innerText += finalTranscript + " ";
+                interimTextEl.innerText = interimTranscript;
             };
         }
 
-        window.handleInteraction = async () => {
-            // First time click: Request Permission
+        window.handleAction = async () => {
             if (!hasPermission) {
-                const granted = await requestMicAccess();
-                if (granted) {
+                if (await getPermission()) {
                     mainBtn.innerText = "START TALKING";
-                    preview.innerText = "Permission Granted! Tap again to speak.";
+                    interimTextEl.innerText = "Ready. Tap again to speak.";
                 }
                 return;
             }
 
-            // Normal Toggle Logic
             if (!isRecording) {
+                // START
                 isRecording = true;
-                preview.innerText = "Listening...";
-                mainBtn.innerText = "TAP TO FINISH";
+                finalTextEl.innerText = "";
+                interimTextEl.innerText = "Listening...";
+                mainBtn.innerText = "STOP & SEND";
                 mainBtn.classList.add('recording');
-                indicator.classList.add('mic-on');
+                dot.classList.add('dot-active');
+                status.innerText = "Listening...";
                 
                 window.speechSynthesis.cancel();
                 recognition.start();
             } else {
+                // STOP
                 isRecording = false;
                 recognition.stop();
                 mainBtn.innerText = "THINKING...";
                 mainBtn.classList.remove('recording');
-                indicator.classList.remove('mic-on');
+                dot.classList.remove('dot-active');
 
                 setTimeout(async () => {
-                    const input = preview.innerText;
-                    if (input && input !== "Listening...") {
-                        const output = await generator(input, { max_new_tokens: 50 });
+                    const fullInput = (finalTextEl.innerText + " " + interimTextEl.innerText).trim();
+                    if (fullInput.length > 2) {
+                        status.innerText = "AI THINKING";
+                        const output = await generator(fullInput, { max_new_tokens: 50 });
                         const aiMsg = output[0].generated_text;
-                        preview.innerText = aiMsg;
+                        
+                        finalTextEl.innerText = "";
+                        interimTextEl.innerText = "AI: " + aiMsg;
                         window.speechSynthesis.speak(new SpeechSynthesisUtterance(aiMsg));
                     }
                     mainBtn.innerText = "START TALKING";
-                }, 500);
+                    status.innerText = "Ready";
+                }, 600);
             }
         };
     </script>
