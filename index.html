@@ -3,179 +3,124 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Gemini Nano - Local</title>
+    <title>Gemini 2026 - Gemma 3</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <script type="module">
         import * as webllm from "https://esm.run/@mlc-ai/web-llm";
 
-        // SMALL MODEL: Qwen2-0.5B is tiny (~350MB) and perfect for iPad/Mobile
-        const modelId = "Qwen2-0.5B-Instruct-q4f16_1-MLC"; 
+        // 2026 Update: Gemma 3 1B is the most efficient model for mobile/tablets
+        const modelId = "gemma-3-1b-it-q4f16_1-MLC"; 
         let engine;
-        let chatHistory = [];
-
-        const statusEl = document.getElementById('status');
-        const progressEl = document.getElementById('progress-bar');
-        const chatContainer = document.getElementById('chat-container');
-        const welcomeScreen = document.getElementById('welcome-screen');
-        const inputField = document.getElementById('promptInput');
-        const sendBtn = document.getElementById('sendBtn');
 
         async function init() {
+            const status = document.getElementById('status');
+            const progress = document.getElementById('progress-bar');
+            
             try {
-                // Initialize engine
                 engine = await webllm.CreateMLCEngine(modelId, {
                     initProgressCallback: (report) => {
-                        statusEl.innerText = report.text;
-                        progressEl.style.width = `${report.progress * 100}%`;
+                        status.innerText = report.text;
+                        progress.style.width = `${report.progress * 100}%`;
                         if (report.progress >= 1) {
-                            setTimeout(() => document.getElementById('loader').style.display = 'none', 800);
+                            setTimeout(() => document.getElementById('loader').style.display = 'none', 500);
                         }
                     }
                 });
-                console.log("Engine Ready");
             } catch (e) {
-                statusEl.innerText = "WebGPU not supported on this browser/device.";
-                console.error(e);
+                status.innerText = "WebGPU failed. Use a 2025+ Browser.";
             }
         }
 
-        async function handleSend() {
-            const text = inputField.value.trim();
+        window.handleSend = async () => {
+            const input = document.getElementById('promptInput');
+            const text = input.value.trim();
             if (!text || !engine) return;
 
-            // UI Updates
-            welcomeScreen.style.display = 'none';
-            appendMessage('user', text);
-            inputField.value = '';
-            inputField.style.height = 'auto';
+            document.getElementById('welcome-screen').style.display = 'none';
+            appendMsg('user', text);
+            input.value = '';
             
-            // Create AI Bubble
-            const aiMsgContainer = appendMessage('ai', '...');
-            chatHistory.push({ role: "user", content: text });
+            const aiDisplay = appendMsg('ai', 'Thinking...');
+            
+            const chunks = await engine.chat.completions.create({
+                messages: [{ role: "user", content: text }],
+                stream: true,
+            });
 
-            try {
-                const chunks = await engine.chat.completions.create({
-                    messages: chatHistory,
-                    stream: true,
-                });
-
-                let fullText = "";
-                for await (const chunk of chunks) {
-                    const curText = chunk.choices[0]?.delta?.content || "";
-                    fullText += curText;
-                    aiMsgContainer.innerText = fullText;
-                    chatContainer.scrollTop = chatContainer.scrollHeight;
-                }
-                chatHistory.push({ role: "assistant", content: fullText });
-            } catch (err) {
-                aiMsgContainer.innerText = "Error: " + err.message;
+            let response = "";
+            for await (const chunk of chunks) {
+                response += chunk.choices[0]?.delta?.content || "";
+                aiDisplay.innerText = response;
+                window.scrollTo(0, document.body.scrollHeight);
             }
-        }
-
-        function appendMessage(role, text) {
-            const wrapper = document.createElement('div');
-            wrapper.className = `flex ${role === 'user' ? 'justify-end' : 'justify-start'} mb-6`;
-            
-            const msgDiv = document.createElement('div');
-            msgDiv.className = role === 'user' 
-                ? 'bg-[#2f2f2f] px-4 py-2 rounded-2xl max-w-[85%] text-white' 
-                : 'bg-transparent max-w-[90%]';
-
-            msgDiv.innerHTML = role === 'ai' 
-                ? `<div class="gemini-sparkle mb-2">✦</div><div class="ai-content">${text}</div>`
-                : `<div>${text}</div>`;
-
-            wrapper.appendChild(msgDiv);
-            chatContainer.appendChild(wrapper);
-            chatContainer.scrollTop = chatContainer.scrollHeight;
-            return role === 'ai' ? msgDiv.querySelector('.ai-content') : msgDiv;
-        }
-
-        // Globalized for HTML button clicks
-        window.handleSend = handleSend;
-        window.toggleSettings = () => {
-            const modal = document.getElementById('settings-modal');
-            modal.style.display = modal.style.display === 'flex' ? 'none' : 'flex';
         };
 
-        // Event Listeners
-        sendBtn.addEventListener('click', handleSend);
-        inputField.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                handleSend();
-            }
-        });
+        function appendMsg(role, text) {
+            const container = document.getElementById('chat-container');
+            const div = document.createElement('div');
+            div.className = `mb-6 ${role === 'user' ? 'text-right' : 'text-left'}`;
+            div.innerHTML = `
+                <div class="inline-block p-4 rounded-2xl ${role === 'user' ? 'bg-[#2f2f2f]' : 'bg-transparent text-[#e3e3e3]'} max-w-[90%]">
+                    ${role === 'ai' ? '<div class="text-blue-400 font-bold mb-2">✦</div>' : ''}
+                    <div class="content">${text}</div>
+                </div>`;
+            container.appendChild(div);
+            return div.querySelector('.content');
+        }
 
         init();
     </script>
-
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500&display=swap');
-        body { font-family: 'Google Sans', sans-serif; background: #131314; color: #e3e3e3; touch-action: manipulation; }
-        .gemini-gradient {
-            background: linear-gradient(70deg, #4285f4, #9b72cb, #d96570);
+        body { background: #131314; color: #e3e3e3; font-family: sans-serif; }
+        .gemini-glow {
+            background: linear-gradient(90deg, #4285f4, #9b72cb, #d96570);
             -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-            background-size: 200% auto; animation: flow 6s linear infinite;
+            animation: move 4s linear infinite; background-size: 200%;
         }
-        @keyframes flow { 0% { background-position: 0% 50%; } 100% { background-position: 200% 50%; } }
-        .gemini-sparkle { color: #8ab4f8; font-size: 1.2rem; }
-        #chat-container { scrollbar-width: none; -ms-overflow-style: none; }
-        #chat-container::-webkit-scrollbar { display: none; }
+        @keyframes move { from { background-position: 0%; } to { background-position: 200%; } }
     </style>
 </head>
-<body class="flex h-screen flex-col">
+<body class="flex flex-col h-screen">
 
-    <div id="loader" class="fixed inset-0 z-50 bg-[#131314] flex flex-col items-center justify-center p-6 text-center">
-        <div class="w-12 h-12 border-4 border-blue-500/20 border-t-blue-500 rounded-full animate-spin mb-4"></div>
-        <p id="status" class="text-sm text-gray-400">Initializing Lite Model...</p>
-        <div class="w-48 bg-gray-800 h-1 mt-4 rounded-full overflow-hidden">
-            <div id="progress-bar" class="bg-blue-500 h-full transition-all duration-300" style="width: 0%"></div>
-        </div>
+    <div id="loader" class="fixed inset-0 z-50 bg-[#131314] flex flex-col items-center justify-center">
+        <div class="w-10 h-10 border-2 border-blue-500 border-t-transparent animate-spin rounded-full mb-4"></div>
+        <p id="status" class="text-xs text-gray-500">Loading Gemma 3...</p>
+        <div class="w-32 h-1 bg-gray-800 mt-4"><div id="progress-bar" class="h-full bg-blue-500 w-0 transition-all"></div></div>
     </div>
 
-    <header class="p-4 flex justify-between items-center bg-[#131314]/80 backdrop-blur-md sticky top-0 z-10">
-        <div class="flex items-center gap-2">
-            <span class="text-xl font-medium">Gemini</span>
-            <span class="text-[10px] text-blue-400 border border-blue-400/30 px-1 rounded">LITE</span>
-        </div>
-        <button onclick="toggleSettings()" class="p-2 rounded-full hover:bg-white/10">
-            <i data-lucide="settings" class="w-5 h-5"></i>
-        </button>
+    <header class="p-4 flex justify-between border-b border-white/5 bg-[#131314]/50 backdrop-blur-xl">
+        <h1 class="font-medium text-lg">Gemini <span class="text-[10px] opacity-50">2026 Edition</span></h1>
+        <button onclick="document.getElementById('set-mod').style.display='flex'"><i data-lucide="settings"></i></button>
     </header>
 
-    <main id="chat-container" class="flex-1 overflow-y-auto px-4 py-6">
+    <main id="chat-container" class="flex-1 overflow-y-auto p-6">
         <div id="welcome-screen" class="h-full flex flex-col justify-center">
-            <h1 class="text-4xl font-medium mb-2"><span class="gemini-gradient">Hello</span></h1>
-            <p class="text-2xl text-[#444746]">Ask me something...</p>
+            <h2 class="text-4xl font-medium mb-2"><span class="gemini-glow">Gemma 3 Active</span></h2>
+            <p class="text-gray-500">Optimized for iPad Neural Engine.</p>
         </div>
     </main>
 
-    <div class="p-4 bg-gradient-to-t from-[#131314] via-[#131314] to-transparent">
-        <div class="max-w-3xl mx-auto bg-[#1e1f20] rounded-3xl border border-[#333537] p-3 flex items-end gap-2">
-            <textarea id="promptInput" rows="1" placeholder="Enter prompt" class="flex-1 bg-transparent border-none outline-none resize-none py-2 px-2 text-md"></textarea>
-            <button id="sendBtn" class="p-3 bg-[#333537] hover:bg-white hover:text-black rounded-2xl transition-all">
-                <i data-lucide="send-horizontal" class="w-5 h-5"></i>
+    <div class="p-4">
+        <div class="max-w-3xl mx-auto flex items-center gap-2 bg-[#1e1f20] p-2 rounded-2xl border border-white/10">
+            <input id="promptInput" type="text" placeholder="Message Gemini..." class="flex-1 bg-transparent p-2 outline-none">
+            <button onclick="handleSend()" class="p-3 bg-white text-black rounded-xl hover:scale-95 transition-transform">
+                <i data-lucide="arrow-up"></i>
             </button>
         </div>
     </div>
 
-    <div id="settings-modal" class="fixed inset-0 bg-black/80 hidden items-center justify-center z-[100] p-6">
-        <div class="bg-[#1e1f20] p-6 rounded-3xl w-full max-w-xs border border-[#333537]">
-            <h2 class="text-xl mb-4">Settings</h2>
-            <p class="text-xs text-gray-500 mb-6">Running Qwen2-0.5B (350MB) for performance.</p>
-            <button onclick="toggleSettings()" class="w-full py-3 bg-white text-black rounded-full font-medium">Done</button>
+    <div id="set-mod" class="fixed inset-0 bg-black/90 hidden items-center justify-center p-6 z-[100]">
+        <div class="bg-[#1e1f20] w-full max-w-sm rounded-3xl p-6 border border-white/10">
+            <h3 class="text-xl mb-4">System Settings</h3>
+            <div class="space-y-4">
+                <div class="flex justify-between"><span>Core Model</span><span class="text-blue-400">Gemma 3 1B</span></div>
+                <div class="flex justify-between"><span>Engine</span><span class="text-green-400">WebGPU / NPU</span></div>
+            </div>
+            <button onclick="document.getElementById('set-mod').style.display='none'" class="w-full mt-6 py-3 bg-white text-black rounded-full">Close</button>
         </div>
     </div>
 
-    <script>
-        lucide.createIcons();
-        const tx = document.getElementById('promptInput');
-        tx.addEventListener('input', function() {
-            this.style.height = 'auto';
-            this.style.height = (this.scrollHeight) + 'px';
-        });
-    </script>
+    <script>lucide.createIcons();</script>
 </body>
 </html>
