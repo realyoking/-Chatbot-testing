@@ -2,147 +2,201 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>AI Voice - Puter Edition</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Local Gemini - WebLLM</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://js.puter.com/v2/"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script type="module">
+        import * as webllm from "https://esm.run/@mlc-ai/web-llm";
+
+        const modelId = "Llama-3-8B-Instruct-q4f16_1-MLC"; // Efficient & Fast
+        let engine;
+        let chatHistory = [];
+
+        // UI Elements
+        const statusEl = document.getElementById('status');
+        const progressEl = document.getElementById('progress-bar');
+        const chatContainer = document.getElementById('chat-container');
+        const welcomeScreen = document.getElementById('welcome-screen');
+        const inputField = document.getElementById('promptInput');
+        const sendBtn = document.getElementById('sendBtn');
+
+        async function init() {
+            try {
+                engine = await webllm.CreateMLCEngine(modelId, {
+                    initProgressCallback: (report) => {
+                        statusEl.innerText = report.text;
+                        const progress = report.progress * 100;
+                        progressEl.style.width = `${progress}%`;
+                        if (progress >= 100) {
+                            setTimeout(() => document.getElementById('loader').classList.add('hidden'), 1000);
+                        }
+                    }
+                });
+            } catch (e) {
+                statusEl.innerText = "Error: WebGPU not supported or model failed.";
+                console.error(e);
+            }
+        }
+
+        async function handleSend() {
+            const text = inputField.value.trim();
+            if (!text || !engine) return;
+
+            // Update UI
+            welcomeScreen.classList.add('hidden');
+            appendMessage('user', text);
+            inputField.value = '';
+            inputField.style.height = 'auto';
+
+            // Prepare AI response container
+            const aiMsgEl = appendMessage('ai', '...');
+            
+            chatHistory.push({ role: "user", content: text });
+            
+            let fullResponse = "";
+            const chunks = await engine.chat.completions.create({
+                messages: chatHistory,
+                stream: true,
+            });
+
+            for await (const chunk of chunks) {
+                const content = chunk.choices[0]?.delta?.content || "";
+                fullResponse += content;
+                aiMsgEl.innerText = fullResponse;
+                chatContainer.scrollTop = chatContainer.scrollHeight;
+            }
+
+            chatHistory.push({ role: "assistant", content: fullResponse });
+        }
+
+        function appendMessage(role, text) {
+            const div = document.createElement('div');
+            div.className = `flex ${role === 'user' ? 'justify-end' : 'justify-start'} mb-6 animate-fade-in`;
+            div.innerHTML = `
+                <div class="${role === 'user' ? 'bg-[#2f2f2f] text-white' : 'bg-transparent'} max-w-[80%] p-3 rounded-2xl leading-relaxed">
+                    ${role === 'ai' ? '<div class="gemini-icon mb-2">✦</div>' : ''}
+                    <div class="message-content">${text}</div>
+                </div>
+            `;
+            chatContainer.appendChild(div);
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+            return div.querySelector('.message-content');
+        }
+
+        sendBtn.onclick = handleSend;
+        inputField.onkeydown = (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }};
+        
+        // Initialize WebLLM
+        init();
+
+        // Custom Settings Toggle
+        window.toggleSettings = () => {
+            const modal = document.getElementById('settings-modal');
+            modal.classList.toggle('hidden');
+            modal.classList.toggle('flex');
+        };
+    </script>
+
     <style>
-        body { background: #000; color: #00ff41; font-family: 'Courier New', monospace; touch-action: manipulation; }
-        .glass { background: rgba(20, 20, 20, 0.8); border: 1px solid #333; backdrop-filter: blur(10px); }
-        #wave-container { display: flex; align-items: center; justify-content: center; gap: 4px; height: 50px; }
-        .bar { width: 4px; height: 20%; background: #00ff41; border-radius: 2px; transition: 0.1s; }
-        #mainBtn { -webkit-tap-highlight-color: transparent; }
-        .pulse { animation: pulse-red 1.5s infinite; }
-        @keyframes pulse-red { 0% { box-shadow: 0 0 0 0 rgba(255, 0, 0, 0.7); } 70% { box-shadow: 0 0 0 15px rgba(255, 0, 0, 0); } 100% { box-shadow: 0 0 0 0 rgba(255, 0, 0, 0); } }
+        @import url('https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500&display=swap');
+        body { font-family: 'Google Sans', sans-serif; background: #131314; color: #e3e3e3; }
+        
+        .gemini-gradient {
+            background: linear-gradient(70deg, #4285f4, #9b72cb, #d96570);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-size: 200% auto;
+            animation: flow 5s linear infinite;
+        }
+        @keyframes flow { 0% { background-position: 0% 50%; } 100% { background-position: 200% 50%; } }
+        
+        .gemini-icon {
+            background: linear-gradient(45deg, #4285f4, #9b72cb);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            font-size: 1.2rem;
+            font-weight: bold;
+        }
+
+        #chat-container::-webkit-scrollbar { width: 6px; }
+        #chat-container::-webkit-scrollbar-thumb { background: #333; border-radius: 10px; }
     </style>
 </head>
-<body class="flex flex-col items-center justify-center min-h-screen p-6 overflow-hidden">
+<body class="flex h-screen overflow-hidden">
 
-    <div class="w-full max-w-sm">
-        <div class="text-center mb-8">
-            <h1 class="text-xs tracking-[0.5em] uppercase text-gray-500 mb-2">Neural Link Active</h1>
-            <div id="wave-container">
-                <div class="bar"></div><div class="bar"></div><div class="bar"></div>
-                <div class="bar"></div><div class="bar"></div><div class="bar"></div>
-                <div class="bar"></div><div class="bar"></div><div class="bar"></div>
-            </div>
+    <div id="loader" class="fixed inset-0 z-50 bg-[#131314] flex flex-col items-center justify-center p-10">
+        <div class="w-20 h-20 mb-8 animate-pulse bg-gradient-to-tr from-blue-500 to-purple-500 rounded-full"></div>
+        <h2 class="text-xl mb-2">Downloading AI Model...</h2>
+        <p id="status" class="text-gray-500 text-sm mb-4 text-center max-w-md italic">Checking WebGPU support...</p>
+        <div class="w-full max-w-xs bg-gray-800 rounded-full h-1">
+            <div id="progress-bar" class="bg-blue-500 h-1 rounded-full transition-all duration-300" style="width: 0%"></div>
         </div>
+    </div>
 
-        <div class="glass p-6 rounded-3xl mb-10 min-h-[160px] flex flex-col justify-center">
-            <div id="live-text" class="text-white text-xl text-center italic leading-tight">
-                Tap the button and say something...
-            </div>
-        </div>
-
-        <button id="mainBtn" onclick="handleBtn()" class="w-full py-12 rounded-[40px] border-2 border-[#00ff41] text-[#00ff41] font-bold text-2xl transition-all active:scale-95 shadow-lg">
-            START
+    <aside class="w-64 bg-[#1e1f20] p-4 flex flex-col hidden lg:flex">
+        <button class="p-3 bg-[#333537] rounded-full w-fit hover:bg-[#444746]"><i data-lucide="menu"></i></button>
+        <button class="mt-8 flex items-center gap-3 px-4 py-3 bg-[#1a1c1e] text-gray-500 rounded-full hover:bg-[#282a2c] transition">
+            <i data-lucide="plus"></i><span>New Chat</span>
         </button>
+        <div class="mt-auto">
+            <button onclick="toggleSettings()" class="flex items-center gap-3 p-3 w-full rounded-lg hover:bg-[#333537]"><i data-lucide="settings"></i>Settings</button>
+        </div>
+    </aside>
 
-        <div class="mt-8 text-center">
-            <span id="status" class="text-[10px] bg-gray-900 px-3 py-1 rounded-full text-gray-400 uppercase tracking-widest">
-                System: Standby
-            </span>
+    <main class="flex-1 flex flex-col relative">
+        <header class="p-4 flex justify-between items-center">
+            <span class="text-xl font-medium">Gemini <span class="text-xs bg-gray-800 px-2 py-1 rounded ml-2">WebLLM</span></span>
+            <div class="w-8 h-8 rounded-full bg-blue-600"></div>
+        </header>
+
+        <div id="chat-container" class="flex-1 overflow-y-auto px-4 md:px-20 py-10 scroll-smooth">
+            <div id="welcome-screen" class="h-full flex flex-col items-start justify-center">
+                <h1 class="text-5xl font-medium mb-4"><span class="gemini-gradient">Hello, User</span></h1>
+                <p class="text-4xl text-[#444746]">How can I help you today?</p>
+            </div>
+        </div>
+
+        <div class="w-full flex justify-center p-4">
+            <div class="max-w-3xl w-full bg-[#1e1f20] rounded-2xl border border-[#333537] p-4 shadow-2xl">
+                <textarea id="promptInput" placeholder="Ask anything..." class="w-full bg-transparent border-none outline-none resize-none text-lg" rows="1"></textarea>
+                <div class="flex justify-between mt-2">
+                    <div class="flex gap-2">
+                        <button class="p-2 text-blue-400 hover:bg-[#333537] rounded-full"><i data-lucide="image"></i></button>
+                        <button class="p-2 text-blue-400 hover:bg-[#333537] rounded-full"><i data-lucide="mic"></i></button>
+                    </div>
+                    <button id="sendBtn" class="p-2 bg-[#333537] rounded-lg hover:bg-white hover:text-black transition-all">
+                        <i data-lucide="send-horizontal"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <div id="settings-modal" class="fixed inset-0 bg-black/60 hidden items-center justify-center z-[100]">
+        <div class="bg-[#1e1f20] p-8 rounded-3xl w-full max-w-md border border-[#333537]">
+            <h2 class="text-2xl mb-6 font-medium">Settings</h2>
+            <div class="space-y-4">
+                <div class="flex justify-between items-center">
+                    <span>Dark Mode</span>
+                    <div class="w-10 h-5 bg-blue-600 rounded-full"></div>
+                </div>
+                <div class="flex justify-between items-center opacity-50">
+                    <span>Model: Llama 3 8B</span>
+                    <span class="text-xs border px-1">WebGPU</span>
+                </div>
+            </div>
+            <button onclick="toggleSettings()" class="mt-8 w-full py-3 bg-white text-black rounded-full font-medium">Close</button>
         </div>
     </div>
 
     <script>
-        let isRecording = false;
-        let mediaRecorder;
-        let audioChunks = [];
-        const liveText = document.getElementById('live-text');
-        const mainBtn = document.getElementById('mainBtn');
-        const bars = document.querySelectorAll('.bar');
-        const status = document.getElementById('status');
-
-        // 1. Visualizer Logic (Shows you if mic is working)
-        async function startVisualizer(stream) {
-            const context = new AudioContext();
-            const source = context.createMediaStreamSource(stream);
-            const analyser = context.createAnalyser();
-            analyser.fftSize = 32;
-            source.connect(analyser);
-            const data = new Uint8Array(analyser.frequencyBinCount);
-
-            function update() {
-                if(!isRecording) { bars.forEach(b => b.style.height = "20%"); return; }
-                analyser.getByteFrequencyData(data);
-                bars.forEach((bar, i) => {
-                    bar.style.height = Math.max(20, (data[i] / 255) * 100) + "%";
-                });
-                requestAnimationFrame(update);
-            }
-            update();
-        }
-
-        // 2. Main Button Handler
-        async function handleBtn() {
-            if (!isRecording) {
-                // START RECORDING
-                try {
-                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                    startVisualizer(stream);
-                    
-                    mediaRecorder = new MediaRecorder(stream);
-                    audioChunks = [];
-                    
-                    mediaRecorder.ondataavailable = (e) => audioChunks.push(e.data);
-                    mediaRecorder.onstop = processAudio;
-                    
-                    mediaRecorder.start();
-                    isRecording = true;
-                    
-                    mainBtn.innerText = "DONE";
-                    mainBtn.style.borderColor = "#ff4141";
-                    mainBtn.style.color = "#ff4141";
-                    mainBtn.classList.add('pulse');
-                    liveText.innerText = "Listening...";
-                    status.innerText = "Status: Recording";
-                    
-                } catch (e) {
-                    alert("Mic Error: Please allow camera/mic access in iPad settings.");
-                }
-            } else {
-                // STOP RECORDING
-                isRecording = false;
-                mediaRecorder.stop();
-                mainBtn.innerText = "THINKING...";
-                mainBtn.disabled = true;
-                mainBtn.classList.remove('pulse');
-                status.innerText = "Status: Transcribing";
-            }
-        }
-
-        // 3. Process with Puter.js (The Keyless Public API)
-        async function processAudio() {
-            const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
-            
-            try {
-                // USE PUTER.JS FOR SPEECH TO TEXT (FREE & NO KEY)
-                const result = await puter.ai.speech2txt(audioBlob);
-                const transcript = result.text || "I didn't catch that.";
-                liveText.innerHTML = `<span class="text-gray-400 text-sm italic">You said:</span><br>${transcript}`;
-
-                // Simple AI Logic (using Puter's chat since it's already connected)
-                status.innerText = "Status: AI Thinking";
-                const aiResponse = await puter.ai.chat(`Give a very short, witty 1-sentence reply to: ${transcript}`);
-                
-                liveText.innerHTML += `<br><br><span class="text-[#00ff41]">${aiResponse}</span>`;
-                
-                // Speak response
-                const utter = new SpeechSynthesisUtterance(aiResponse);
-                window.speechSynthesis.speak(utter);
-
-            } catch (err) {
-                liveText.innerText = "Connection failed. Please check your internet.";
-                console.error(err);
-            } finally {
-                mainBtn.disabled = false;
-                mainBtn.innerText = "START";
-                mainBtn.style.borderColor = "#00ff41";
-                mainBtn.style.color = "#00ff41";
-                status.innerText = "Status: Ready";
-            }
-        }
+        lucide.createIcons();
+        const tx = document.getElementById('promptInput');
+        tx.addEventListener('input', function() {
+            this.style.height = 'auto';
+            this.style.height = (this.scrollHeight) + 'px';
+        });
     </script>
 </body>
 </html>
